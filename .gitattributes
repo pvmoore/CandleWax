@@ -1,0 +1,4 @@
+
+*.comp linguist-language=glsl
+*.inc linguist-language=glsl
+
