@@ -2,7 +2,9 @@
 
 Signed Distance Field Renderer
 
-![2D Example](screenshots/shot1.png)
+![Example Scene](screenshots/shot1.png)
+
+![Example Scene](screenshots/shot2.png)
 
 #### Requirements
 - Java runtime

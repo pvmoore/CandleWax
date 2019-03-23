@@ -2,7 +2,7 @@
  *  Example scenes
  */
 
-#define SCENE (3)
+#define SCENE (2)
 
 #if SCENE==0
 
