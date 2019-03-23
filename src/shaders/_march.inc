@@ -103,7 +103,7 @@ float ao(vec3 pos, vec3 nor, float ra) {
     return clamp(occ/iter, 0, 1);
 }
 // from https://www.shadertoy.com/view/Xds3zN
-float calcAO( in vec3 pos, in vec3 nor ) {
+float calcAO(vec3 pos, vec3 nor ) {
     float occ = 0.0;
     float sca = 1.0;
     for( int i=0; i<5; i++ )

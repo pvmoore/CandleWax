@@ -90,6 +90,7 @@ void main() {
 
             //float occ   = ao(hit, normal, 1);
             float occ   = aoCheap(hit, normal, 0.4);
+            //float occ = calcAO(hit,normal);
 
             light = saturate((occ+light)/2);
 
@@ -99,13 +100,13 @@ void main() {
                 toLight
             );
             spec = state.material.specPower == 0 ? vec3(0,0,0) :
-            specularColour(
-                vec3(1,1,1),
-                normal,
-                ray.dir,
-                toLight,
-                state.material.specPower
-            );
+                specularColour(
+                    vec3(1,1,1),
+                    normal,
+                    ray.dir,
+                    toLight,
+                    state.material.specPower
+                );
         }
 
         pixel = vec4(ambient + (diff + spec) * light, 1);
