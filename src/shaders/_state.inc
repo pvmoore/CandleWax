@@ -2,39 +2,38 @@
  *  State change and volume manipulation functions.
  *
  */
-
 State newState(vec3 p) {
-    state.p      = p;
-    state.pStart = p;
-    state.tmin   = FLT_MAX;
-    state.pTmin  = FLT_MAX;
-    state.material = Material(vec3(1), -1, 0);
+    state.p        = p;
+    state.pStart   = p;
+    state.tmin     = FLT_MAX;
+    state.pTmin    = FLT_MAX;
+    state.material = 0;
     return state;
 }
 void reset() {
     state.p = state.pStart;
 }
-void apply(Material m) {
+void apply(uint m) {
     if(state.tmin < state.pTmin) {
         state.material = m;
     }
     state.p     = state.pStart;
     state.pTmin = state.tmin;
 }
-void paint(Material m) {
+void paint(uint m) {
     if(state.tmin < state.pTmin) {
         state.material = m;
     }
     state.pTmin = state.tmin;
 }
-void paint(Material m, vec3 c1, vec3 c2, float a, float b, float c) {
-    if(state.tmin < state.pTmin) {
-        state.material = m;
-        float f = clamp(abs(c-a) / abs(b-a), 0,1);
-        state.material.colour = mix(c1,c2,f);
-    }
-    state.pTmin = state.tmin;
-}
+//void paint(uint m, vec3 c1, vec3 c2, float a, float b, float c) {
+//    if(state.tmin < state.pTmin) {
+//        state.material = m;
+//        float f = clamp(abs(c-a) / abs(b-a), 0,1);
+//        state.material.colour = mix(c1,c2,f);
+//    }
+//    state.pTmin = state.tmin;
+//}
 void move(float x, float y, float z) {
     state.p -= vec3(x,y,z);
 }

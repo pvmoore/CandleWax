@@ -1,16 +1,14 @@
 package candlewax
 
+import candlewax.Scene.MaterialArray.Material
+import candlewax.Scene.SDFObjectArray.SDFObject
 import org.apache.log4j.Logger
-import org.joml.Matrix4f
-import org.joml.Vector2f
-import org.joml.Vector2i
-import org.joml.Vector3f
+import org.joml.*
 import org.lwjgl.glfw.GLFW.*
 import org.lwjgl.vulkan.VK10.*
 import org.lwjgl.vulkan.VkCommandBuffer
 import org.lwjgl.vulkan.VkImageMemoryBarrier
 import vulkan.api.*
-import vulkan.api.buffer.BufferAlloc
 import vulkan.api.descriptor.VkDescriptorSet
 import vulkan.api.descriptor.bindDescriptorSets
 import vulkan.api.image.VkImage
@@ -28,8 +26,8 @@ import vulkan.maths.copy
 import vulkan.misc.RGBA
 import vulkan.misc.megabytes
 import vulkan.misc.orThrow
+import vulkan.misc.toVector3f
 import vulkan.texture.Textures
-
 
 class Scene {
     companion object {
@@ -47,15 +45,65 @@ class Scene {
         val quad            : Quad
     )
     private class UBO(
-        val view      : Matrix4f = Matrix4f(),
-        val invView   : Matrix4f = Matrix4f(),
-        val cameraPos : Vector3f = Vector3f(),
-        var tanfov2   : Float    = 0f,
-        val cameraDir : Vector3f = Vector3f(),
-        val _pad1     : Float    = 0f,
-        val cameraUp  : Vector3f = Vector3f(),
-        val _pad2     : Float    = 0f
+        val view       : Matrix4f = Matrix4f(),
+        val invView    : Matrix4f = Matrix4f(),
+        val cameraPos  : Vector3f = Vector3f(),
+        var tanfov2    : Float    = 0f,
+        val cameraDir  : Vector3f = Vector3f(),
+        var numObjects : Int      = 0,
+        val cameraUp   : Vector3f = Vector3f(),
+        val _pad2      : Float    = 0f
     ) : AbsUBO()
+
+    private class SDFObjectArray : AbsStorageBuffer<SDFObject>(1000) {
+        class SDFObject(
+            val move:Vector3f,
+            val type:Int,
+            val params1:Vector4f,
+            val params2:Vector4f,
+            val materialIndex:Int,
+            val _pad1:Float = 0f,
+            val _pad2:Float = 0f,
+            val _pad3:Float = 0f)
+            : AbsTransferable()
+
+        init{
+            assert(elementInstance().size()%16==0)
+        }
+
+        override fun elementInstance() = SDFObject(Vector3f(),0,Vector4f(), Vector4f(),0)
+
+        var numObjects:Int = 0
+        var isUploaded     = false
+
+        fun add(obj:SDFObject) {
+            val size = elementInstance().size()
+
+            stagingBuffer.rangeOf(numObjects*size, size).mapForWriting { b->
+                obj.writeTo(b)
+            }
+
+            numObjects++
+            setStale()
+        }
+        fun upload(cmd:VkCommandBuffer) {
+            if(!isUploaded) {
+                transferRange(cmd, 0, numObjects * elementInstance().size())
+                isUploaded = true
+            }
+        }
+    }
+    private class MaterialArray : AbsStorageBuffer<MaterialArray.Material>(100) {
+
+        class Material(val rgb:Vector3f,
+                       val textureIndex:Int,
+                       val specularPower:Int,
+                       val _pad1:Float = 0f,
+                       val _pad2:Float = 0f,
+                       val _pad3:Float = 0f) : AbsTransferable()
+
+        override fun elementInstance() = Material(Vector3f(), 0, 0)
+    }
 
     private val camera2d         = Camera2D()
     private val camera3d         = Camera3D()
@@ -69,6 +117,8 @@ class Scene {
     private val fps              = FPS(colour = RGBA(1.0f, 1.0f, 0.2f, 1f))
     private val text             = Text()
     private val ubo              = UBO()
+    private val sdfObjects       = SDFObjectArray()
+    private val materialsBuffer  = MaterialArray()
     private val frameResources   = ArrayList<FrameResource>()
 
     private val graphicsToComputeImgBarrier = VkImageMemoryBarrier.calloc(1)
@@ -77,8 +127,6 @@ class Scene {
     private var compCommandPool  = null as VkCommandPool?
     private var textureSampler   = null as VkSampler?
     private var quadSampler      = null as VkSampler?
-    private var dataInStagingBuf = null as BufferAlloc?
-    private var dataInBuf        = null as BufferAlloc?
 
     private var dragForward = null as Vector3f?
     private var dragUp      = null as Vector3f?
@@ -107,6 +155,9 @@ class Scene {
 
             graphicsToComputeImgBarrier.free()
             computeToGraphicsImgBarrier.free()
+
+            sdfObjects.destroy()
+            materialsBuffer.destroy()
 
             text.destroy()
             fps.destroy()
@@ -179,6 +230,9 @@ class Scene {
 
         res.cmd.let { b->
             b.beginOneTimeSubmit()
+
+            sdfObjects.upload(b)
+            materialsBuffer.transfer(b)
 
             text.beforeRenderPass(frame, res)
             fps.beforeRenderPass(frame, res)
@@ -277,8 +331,11 @@ class Scene {
 
         context = RenderContext(vk, vk.device, vk.graphics.renderPass, buffers)
 
-        dataInStagingBuf = buffers.get(VulkanBuffers.STAGING_UPLOAD).allocate(1.megabytes())
-        dataInBuf = buffers.get(VulkanBuffers.STORAGE).allocate(1.megabytes())
+        sdfObjects.init(context)
+        materialsBuffer.init(context)
+
+        setBufferData()
+        setMaterials()
 
         ubo.init(context)
 
@@ -298,14 +355,16 @@ class Scene {
 
         /**
          * Bindings:
-         *    0     storage buffer (data in)
-         *    1     image          (compute target)
-         *    2     uniform buffer
-         *    3     textureSampler
+         *    0     storage buffer (objects)
+         *    1     storage buffer (materials)
+         *    2     image          (compute target)
+         *    3     uniform buffer
+         *    4     textureSampler
          */
         descriptors
             .init(context)
             .createLayout()
+                .storageBuffer(VK_SHADER_STAGE_COMPUTE_BIT)
                 .storageBuffer(VK_SHADER_STAGE_COMPUTE_BIT)
                 .storageImage(VK_SHADER_STAGE_COMPUTE_BIT)
                 .uniformBuffer(VK_SHADER_STAGE_COMPUTE_BIT)
@@ -338,6 +397,247 @@ class Scene {
         createFrameResources(windowSize)
 
         createImageBarriers()
+    }
+    private fun setBufferData() {
+
+        sdfObjects.add(SDFObject(
+            type            = 0,
+            move            = Vector3f(30f,1f,0f),
+            materialIndex   = 0,
+            params1         = Vector4f(5f,0f,0f,0f),
+            params2         = Vector4f()
+        ))
+        sdfObjects.add(SDFObject(
+            type            = 0,
+            move            = Vector3f(-30f,0f,0f),
+            materialIndex   = 1,
+            params1         = Vector4f(5f,0f,0f,0f),
+            params2         = Vector4f()
+        ))
+
+        sdfObjects.add(SDFObject(
+            type            = 1,
+            move            = Vector3f(30f,10f,0f),
+            materialIndex   = 0,
+            params1         = Vector4f(5f,5f,5f,0f),
+            params2         = Vector4f()
+        ))
+        sdfObjects.add(SDFObject(
+            type            = 1,
+            move            = Vector3f(-30f,10f,0f),
+            materialIndex   = 0,
+            params1         = Vector4f(5f,5f,5f,0f),
+            params2         = Vector4f()
+        ))
+
+        sdfObjects.add(SDFObject(
+            type            = 3,
+            move            = Vector3f(30f,-10f,0f),
+            materialIndex   = 0,
+            params1         = Vector4f(5f,5f,5f,2f),
+            params2         = Vector4f()
+        ))
+        sdfObjects.add(SDFObject(
+            type            = 3,
+            move            = Vector3f(-30f,-10f,0f),
+            materialIndex   = 0,
+            params1         = Vector4f(5f,5f,5f,2f),
+            params2         = Vector4f()
+        ))
+
+        sdfObjects.add(SDFObject(
+            type            = 5,
+            move            = Vector3f(30f,20f,0f),
+            materialIndex   = 0,
+            params1         = Vector4f(5f,2f,0f,0f),
+            params2         = Vector4f()
+        ))
+        sdfObjects.add(SDFObject(
+            type            = 5,
+            move            = Vector3f(30f,-20f,0f),
+            materialIndex   = 0,
+            params1         = Vector4f(5f,2f,0f,0f),
+            params2         = Vector4f()
+        ))
+
+        sdfObjects.add(SDFObject(
+            type            = 5,
+            move            = Vector3f(-30f,20f,0f),
+            materialIndex   = 1,
+            params1         = Vector4f(5f,2f,0f,0f),
+            params2         = Vector4f()
+        ))
+        sdfObjects.add(SDFObject(
+            type            = 5,
+            move            = Vector3f(-30f,-20f,0f),
+            materialIndex   = 1,
+            params1         = Vector4f(5f,2f,0f,0f),
+            params2         = Vector4f()
+        ))
+
+        sdfObjects.add(SDFObject(
+            type            = 4,
+            move            = Vector3f(40f,0f,0f),
+            materialIndex   = 0,
+            params1         = Vector4f(5f,2f,0f,0f),
+            params2         = Vector4f()
+        ))
+        sdfObjects.add(SDFObject(
+            type            = 4,
+            move            = Vector3f(-40f,0f,0f),
+            materialIndex   = 1,
+            params1         = Vector4f(5f,2f,0f,0f),
+            params2         = Vector4f()
+        ))
+
+        sdfObjects.add(SDFObject(
+            type            = 6,
+            move            = Vector3f(40f,10f,0f),
+            materialIndex   = 0,
+            params1         = Vector4f(5f,0.1f,5f,0f),
+            params2         = Vector4f()
+        ))
+        sdfObjects.add(SDFObject(
+            type            = 6,
+            move            = Vector3f(40f,-10f,0f),
+            materialIndex   = 0,
+            params1         = Vector4f(0.1f,5f,5f,0f),
+            params2         = Vector4f()
+        ))
+
+        sdfObjects.add(SDFObject(
+            type            = 6,
+            move            = Vector3f(-40f,10f,0f),
+            materialIndex   = 1,
+            params1         = Vector4f(5f,0.1f,5f,0f),
+            params2         = Vector4f()
+        ))
+        sdfObjects.add(SDFObject(
+            type            = 6,
+            move            = Vector3f(-40f,-10f,0f),
+            materialIndex   = 1,
+            params1         = Vector4f(0.1f,5f,5f,0f),
+            params2         = Vector4f()
+        ))
+
+        sdfObjects.add(SDFObject(
+            type            = 7,
+            move            = Vector3f(40f,20f,0f),
+            materialIndex   = 0,
+            params1         = Vector4f(7f,5f,0f,0f),
+            params2         = Vector4f()
+        ))
+        sdfObjects.add(SDFObject(
+            type            = 7,
+            move            = Vector3f(-40f,20f,0f),
+            materialIndex   = 1,
+            params1         = Vector4f(7f,5f,0f,0f),
+            params2         = Vector4f()
+        ))
+
+        sdfObjects.add(SDFObject(
+            type            = 8,
+            move            = Vector3f(40f,-20f,0f),
+            materialIndex   = 0,
+            params1         = Vector4f(5f,3f,1f,0f),
+            params2         = Vector4f()
+        ))
+        sdfObjects.add(SDFObject(
+            type            = 8,
+            move            = Vector3f(-40f,-20f,0f),
+            materialIndex   = 1,
+            params1         = Vector4f(5f,3f,1f,0f),
+            params2         = Vector4f()
+        ))
+
+        sdfObjects.add(SDFObject(
+            type            = 9,
+            move            = Vector3f(40f,30f,0f),
+            materialIndex   = 0,
+            params1         = Vector4f(2f,5f,0f,0f),
+            params2         = Vector4f()
+        ))
+        sdfObjects.add(SDFObject(
+            type            = 9,
+            move            = Vector3f(-40f,30f,0f),
+            materialIndex   = 1,
+            params1         = Vector4f(2f,5f,0f,0f),
+            params2         = Vector4f()
+        ))
+
+        sdfObjects.add(SDFObject(
+            type            = 10,
+            move            = Vector3f(40f,-30f,0f),
+            materialIndex   = 0,
+            params1         = Vector4f(5f,2f,3f,0f),
+            params2         = Vector4f()
+        ))
+        sdfObjects.add(SDFObject(
+            type            = 10,
+            move            = Vector3f(-40f,-30f,0f),
+            materialIndex   = 1,
+            params1         = Vector4f(5f,2f,3f,0f),
+            params2         = Vector4f()
+        ))
+
+        sdfObjects.add(SDFObject(
+            type            = 11,
+            move            = Vector3f(40f,40f,0f),
+            materialIndex   = 0,
+            params1         = Vector4f(5f,2f,0f,0f),
+            params2         = Vector4f()
+        ))
+        sdfObjects.add(SDFObject(
+            type            = 11,
+            move            = Vector3f(-40f,40f,0f),
+            materialIndex   = 1,
+            params1         = Vector4f(5f,2f,0f,0f),
+            params2         = Vector4f()
+        ))
+
+        sdfObjects.add(SDFObject(
+            type            = 12,
+            move            = Vector3f(40f,-40f,0f),
+            materialIndex   = 0,
+            params1         = Vector4f(5f,2f,0f,0f),
+            params2         = Vector4f()
+        ))
+        sdfObjects.add(SDFObject(
+            type            = 12,
+            move            = Vector3f(-40f,-40f,0f),
+            materialIndex   = 1,
+            params1         = Vector4f(5f,2f,0f,0f),
+            params2         = Vector4f()
+        ))
+
+        sdfObjects.add(SDFObject(
+            type            = 13,
+            move            = Vector3f(40f,50f,0f),
+            materialIndex   = 0,
+            params1         = Vector4f(5f,0f,0f,0f),
+            params2         = Vector4f()
+        ))
+        sdfObjects.add(SDFObject(
+            type            = 13,
+            move            = Vector3f(-40f,50f,0f),
+            materialIndex   = 1,
+            params1         = Vector4f(5f,0f,0f,0f),
+            params2         = Vector4f()
+        ))
+
+        ubo.numObjects = sdfObjects.numObjects
+        ubo.setStale()
+    }
+    private fun setMaterials() {
+
+        materialsBuffer.stagingBuffer.mapForWriting { b->
+            Material((RGBA(1f,0.4f,0f)*0.75f).toVector3f(), -1, 64).writeTo(b) // [0] brown
+            Material((RGBA(1f,0.8f,0f)*0.75f).toVector3f(), -1, 64).writeTo(b) // [1] yellow
+            Material((RGBA(0f,0.8f,1f)*0.75f).toVector3f(), -1, 64).writeTo(b) // [2] blue
+            Material((RGBA(0.8f,1f,0f)*0.75f).toVector3f(), -1, 64).writeTo(b) // [3] green
+            Material((RGBA(1f,0f,1f)*0.5f).toVector3f(),    -1, 64).writeTo(b) // [4] purple
+            Material((RGBA(1f,0f,0f)*0.5f).toVector3f(),   -1, 64).writeTo(b) // [5] red
+        }
     }
     private fun createImageBarriers() {
         graphicsToComputeImgBarrier
@@ -388,7 +688,8 @@ class Scene {
             descriptors
                 .layout(0)
                 .createSet()
-                .add(dataInBuf!!)
+                .add(sdfObjects.deviceBuffer)
+                .add(materialsBuffer.deviceBuffer)
                 .add(targetImage.getView(), VK_IMAGE_LAYOUT_GENERAL)
                 .add(ubo.deviceBuffer)
                 .add(textures.get("brick.dds").image.getView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, textureSampler!!)

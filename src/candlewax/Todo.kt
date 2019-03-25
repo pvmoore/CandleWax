@@ -1,7 +1,9 @@
 package candlewax
 
 /**
+ * ################################
  * Things to do:
+ * ################################
  *
  * Modify scene.inc to take an array of object properties from the dataIn buffer. Use
  * these properties to display different sdf objects. I expect this to be quite slow but
@@ -9,20 +11,25 @@ package candlewax
  *
  *
  * Run several shader passes (one for each type of object). Each pass adds hit depth, material,
- * normal and occlusion data to the result buffer.
- * This may not work well with soft shadows? Or maybe it will be ok.
+ * normal data to the result buffer.
+ * We would need to run all object passes again to gather occlusion data which seems
+ * a bit non-viable.
  *
  *
  *
  *
- * Generate GLSL scene file dynamically as the scene changes. This would require a new pipeline
- * every time the shader file changes.
+ * Things that won't work:
+ *
+ *  Generate GLSL scene file dynamically as the scene changes. This would require a new pipeline
+ *  every time the shader file changes. Would be ok for scenes where objects don't get added
+ *  dynamically.
  *
  *
  *
  *
- *
+ * ################################
  * Optimisation ideas:
+ * ################################
  *
  *  Bounding boxes/spheres:
  *
@@ -64,4 +71,11 @@ package candlewax
  *      This grid can be an octree so a grid cell's parent can also be checked if this is faster.
  *
  *      Each empty grid cell can have a distance to the next non-empty cell.
+ *
+ *  Checker-board marching:
+ *
+ *      March rays from the camera at alternating pixels and start from the average distance from
+ *      the camera on the non-alternate pixels. This should speed up half the pixels by starting
+ *      them near to the potential hit point.
+ *
  */
