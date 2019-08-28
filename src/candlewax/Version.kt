@@ -1,10 +1,11 @@
 package candlewax
 
-const val VERSION = "0.0.2"
+const val VERSION = "0.0.3"
 
 /**
- * Upcoming: 0.0.3 - More features
+ * Upcoming: 0.0.4 - More features
  *
+ * 0.0.3 -
  *
  * 0.0.2 - Create test scene which demonstrates speed of rendering several different types of
  *         object. Use this to compare with a version of the scene that renders the same objects

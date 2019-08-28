@@ -389,7 +389,7 @@ class Scene {
                 Vector2f(3f,0f))
 
         compCommandPool = context.device.createCommandPool(
-            vk.queues.getFamily(Queues.COMPUTE),
+            vk.queues.getFamily(Queues.COMPUTE).index,
             VK_COMMAND_POOL_CREATE_TRANSIENT_BIT or
             VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT
         )
@@ -425,7 +425,7 @@ class Scene {
         sdfObjects.add(SDFObject(
             type            = 1,
             move            = Vector3f(-30f,10f,0f),
-            materialIndex   = 0,
+            materialIndex   = 1,
             params1         = Vector4f(5f,5f,5f,0f),
             params2         = Vector4f()
         ))
@@ -440,7 +440,7 @@ class Scene {
         sdfObjects.add(SDFObject(
             type            = 3,
             move            = Vector3f(-30f,-10f,0f),
-            materialIndex   = 0,
+            materialIndex   = 1,
             params1         = Vector4f(5f,5f,5f,2f),
             params2         = Vector4f()
         ))
@@ -646,8 +646,8 @@ class Scene {
             .newLayout(VK_IMAGE_LAYOUT_GENERAL)
             .srcAccessMask(0)
             .dstAccessMask(VK_ACCESS_SHADER_WRITE_BIT)
-            .srcQueueFamilyIndex(vk.queues.getFamily(Queues.GRAPHICS))
-            .dstQueueFamilyIndex(vk.queues.getFamily(Queues.COMPUTE))
+            .srcQueueFamilyIndex(vk.queues.getFamily(Queues.GRAPHICS).index)
+            .dstQueueFamilyIndex(vk.queues.getFamily(Queues.COMPUTE).index)
 
         graphicsToComputeImgBarrier.subresourceRange()
             .aspectMask(VK_IMAGE_ASPECT_COLOR_BIT)
@@ -663,8 +663,8 @@ class Scene {
             .newLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
             .srcAccessMask(VK_ACCESS_SHADER_WRITE_BIT)
             .dstAccessMask(VK_ACCESS_SHADER_READ_BIT)
-            .srcQueueFamilyIndex(vk.queues.getFamily(Queues.COMPUTE))
-            .dstQueueFamilyIndex(vk.queues.getFamily(Queues.GRAPHICS))
+            .srcQueueFamilyIndex(vk.queues.getFamily(Queues.COMPUTE).index)
+            .dstQueueFamilyIndex(vk.queues.getFamily(Queues.GRAPHICS).index)
 
         computeToGraphicsImgBarrier.subresourceRange()
             .aspectMask(VK_IMAGE_ASPECT_COLOR_BIT)

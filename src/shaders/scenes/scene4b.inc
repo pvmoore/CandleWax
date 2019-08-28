@@ -97,7 +97,7 @@ float scene(vec3 p) {
         }
 
         opUnion(f);
-        apply(BROWN);
+        apply(o.materialIndex);
     }
 
     return state.tmin;

@@ -6,7 +6,7 @@
 #define PURPLE  (4)
 #define RED     (5)
 
-#define SCENE3
+#define SCENE1
 
 #include "scene0.inc"
 #include "scene1.inc"
