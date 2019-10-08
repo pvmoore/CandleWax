@@ -14,13 +14,13 @@ fun main(args: Array<String>) {
     CandleWax.destroy()
 }
 
-object CandleWax : VulkanClient(
+object CandleWax : VulkanClient(Parameters(
     windowTitle             = "CandleWax $VERSION",
     windowed                = true,
     enableVsync             = false,
     width                   = 1000,
     height                  = 800,
-    prefNumSwapChainBuffers = 2)
+    prefNumSwapChainBuffers = 2))
 {
     val log = Logger.getLogger(this::class.java)
 
